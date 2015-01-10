@@ -186,6 +186,7 @@ class SimpleSwitch(app_manager.RyuApp):
 
         self.logger.info("packet in %s %s %s %s", dpid, src, dst, msg.in_port)
 
+
         self.update_spanning_tree()
         print self.spanning_tree
 
@@ -194,8 +195,7 @@ class SimpleSwitch(app_manager.RyuApp):
             option_list = tcpopt.split_opts(p_tcp.option)
             print tcpopt.check_kind(option_list, tcpopt.TCPOPT_KIND_MPTCP), option_list
 
-        if p_icmp is not None and p_ipv4 is not None:
-            print "ICMP:", p_ipv4.src, '=>', p_ipv4.dst
+        print self.mac_to_port
 
         # learn a mac address to avoid FLOOD next time.
         self.mac_to_port[dpid][src] = msg.in_port
