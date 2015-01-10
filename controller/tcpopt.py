@@ -11,7 +11,7 @@
 #   Inputs: What you get from split_opts, int (IANA TCP Option Kind No.)
 #   Output: Bool (True means option list contains the type you want)
 #
-# (* means zero or more, ? means one or more, REGEX style)
+# (* means zero or more, ? means zero or one, REGEX style)
 
 
 # Conforming with IANA rules.
