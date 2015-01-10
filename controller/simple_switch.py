@@ -40,6 +40,9 @@ from mproute import MPRoute
 from pprint import pprint
 from time import sleep
 
+from binascii import hexlify
+import tcpopt
+
 # priority mods for SMOC/MPRoute functionality
 HI_PRIORITY = 10
 LO_PRIORITY = -10
@@ -188,7 +191,8 @@ class SimpleSwitch(app_manager.RyuApp):
 
         if p_tcp is not None:
             print "TCP?"
-            print p_tcp.option
+            option_list = tcpopt.split_opts(p_tcp.option)
+            print tcpopt.check_kind(option_list, tcpopt.TCPOPT_KIND_MPTCP), option_list
 
         if p_icmp is not None and p_ipv4 is not None:
             print "ICMP:", p_ipv4.src, '=>', p_ipv4.dst
