@@ -68,9 +68,10 @@ class SimpleSwitch(app_manager.RyuApp):
         links = get_link(self)
         ports = [(switch, switch.ports) for switch in switches]
         switches = [dpid_to_str(switch.dp.id) for switch in switches]
+        print [(link.src.dpid, link.src.port_no, link.dst.port_no, link.dst.dpid) for link in links]
         links = [(dpid_to_str(link.src.dpid), dpid_to_str(link.dst.dpid)) for link in links]
 
-        print 'Controller: Generating Spanning Tree\nV = %s\nE = %s' % (switches,links)
+        print 'Controller: Generating Spanning Tree'
         self.spanning_tree = MPRoute(switches,links)
 
     def add_flow(self, datapath, in_port, dst, actions):
@@ -84,6 +85,22 @@ class SimpleSwitch(app_manager.RyuApp):
             command=ofproto.OFPFC_ADD, idle_timeout=0, hard_timeout=0,
             priority=ofproto.OFP_DEFAULT_PRIORITY,
             flags=ofproto.OFPFF_SEND_FLOW_REM, actions=actions)
+        datapath.send_msg(mod)
+
+    ''' forces LLDP to be sent to controller ONLY
+        highest priority fixed (65535)
+    '''
+    def force_lldp(self, datapath):
+        ofproto = datapath.ofproto
+        wildcards = ofproto_v1_0.OFPFW_ALL
+        wildcards &= ~ofproto_v1_0.OFPFW_DL_TYPE
+        match = datapath.ofproto_parser.OFPMatch(dl_type=0x88cc)
+        actions = [datapath.ofproto_parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)]
+        mod = datapath.ofproto_parser.OFPFlowMod(
+            datapath=datapath, match=match, cookie=0,
+            command=ofproto.OFPFC_ADD, idle_timeout=0, hard_timeout=0,
+            priority=65535, flags=ofproto.OFPFF_SEND_FLOW_REM,
+            actions=actions)
         datapath.send_msg(mod)
 
     def safe_reject(self, datapath):
@@ -186,6 +203,10 @@ class SimpleSwitch(app_manager.RyuApp):
 
         self.logger.info("packet in %s %s %s %s", dpid, src, dst, msg.in_port)
 
+        print 'forcing LLDP'
+        all_switches = get_switch(self)
+        for switch in all_switches:
+            self.force_lldp(switch.dp)
 
         self.update_spanning_tree()
         print self.spanning_tree
@@ -249,13 +270,14 @@ class SimpleSwitch(app_manager.RyuApp):
         print dp.ports
 
 
+
         # rebuild spanning tree
         #self.update_spanning_tree()
 
-        print 'test block'
+        #print 'test block'
         #self.block_port(dp, dp.ports[port_no])
 
-        print 'test unblock'
+        #print 'test unblock'
         #self.unblock_port(dp, dp.ports[port_no])
 
         #switches = get_all_switch(self)

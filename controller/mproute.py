@@ -12,8 +12,9 @@ class MPRoute(nx.Graph):
     def __init__(self, V = None, E = None, *args, **kwargs):
         nx.Graph.__init__(self)
         print 'Initializing MPRoute. Listing all nodes and edges ...'
-        print 'V{%d} = %s' % (len(V),V)
-        print 'E{%d} = %s' % (len(E),E)
+        #print 'V{%d} = %s' % (len(V),V)
+        #print 'E{%d} = %s' % (len(E),E)
+        print 'V{%d}, E{%d}' % (len(V), len(E))
         print 'Removing duplicates and inserting'
         E = set(order_tuple_list(E))
         print 'E\'{%d} = %s' % (len(E),E)
