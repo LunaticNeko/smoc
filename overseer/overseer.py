@@ -44,15 +44,12 @@ class Overseer (object):
 
   _core_name = "overseer"  # We want to be core.overseer
 
-  def __init__(self, flow_idle_timeout=10, flow_hard_timeout=30,
-                default_latency=1, default_bandwidth=100):
+  def __init__(self, flow_idle_timeout=10, flow_hard_timeout=30):
     core.listen_to_dependencies(self)
 
     self.log = core.getLogger()
     self.flow_idle_timeout = flow_idle_timeout
     self.flow_hard_timeout = flow_hard_timeout
-    self.default_latency = default_latency  # Milliseconds
-    self.default_bandwidth = default_bandwidth  # Megabits
 
   def _handle_overseer_topology_LinkUp(self, event):
     graph = core.overseer_topology.graph
