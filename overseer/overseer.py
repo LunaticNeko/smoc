@@ -142,6 +142,11 @@ class Overseer (object):
     # get all paths
     alt_paths = list(nx.all_simple_paths(core.overseer_topology.graph, from_dpid, to_dpid))
     alt_paths.remove(shortest_path)
+
+    #prevents path assignment error on single path (retain backwards-compat)
+    if alt_paths == []:
+        alt_paths.append(shortest_path)
+
     alt_paths = path_utils.sort_path_list(shortest_path, alt_paths)
 
     # if MP_JOIN packet detected
