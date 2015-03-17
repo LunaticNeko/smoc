@@ -11,6 +11,9 @@ from binascii import hexlify, unhexlify
 import struct
 import random
 import path_utils
+import expiringdict
+from hashlib import sha1
+import itertools
 
 TCP_OPTION_KIND_MPTCP = 0x1e
 
@@ -50,6 +53,8 @@ class Overseer (object):
     self.log = core.getLogger()
     self.flow_idle_timeout = flow_idle_timeout
     self.flow_hard_timeout = flow_hard_timeout
+    self.connections = {}
+    self.pathsets = {} # (token1,token2,swA,swB) => PathSet
 
   def _handle_overseer_topology_LinkUp(self, event):
     graph = core.overseer_topology.graph
@@ -86,6 +91,13 @@ class Overseer (object):
     match = of.ofp_match.from_packet(packet)
     match.in_port = None
 
+    # TODO: INSPECT MPTCP AND PERFORM INFORMATION BASE OPERATIONS HERE
+    # (USE NEW FUNCTION IN utils)
+    print packet
+    print dir(packet)
+    if packet.find("tcp") is not None:
+        print utils.inspect_mptcp_packet(packet)
+
     self.log.info("Installing path from host %s to host %s" % (source, destination))
 
     # Install flows
@@ -115,6 +127,9 @@ class Overseer (object):
     message.actions.append(of.ofp_action_output(port=to_host.port))
     core.overseer_topology.graph.node[path[-1]]['connection'].send(message)
 
+  def get_mptcp_path(self, token):
+    pass
+
   def get_path(self, from_dpid, to_dpid, packet):
     # TODO: Support IPv6
 
@@ -129,6 +144,10 @@ class Overseer (object):
     For MP_JOIN (secondary subflows) connections:
         - Use least-conflicting, shortest path that's not used above
     """
+
+
+
+
     # get shortest paths
     shortest_path = nx.shortest_path(core.overseer_topology.graph, from_dpid, to_dpid)
 
@@ -161,7 +180,7 @@ class Overseer (object):
                     self.log.info("MP_JOIN => Alt. Path")
                     self.log.info("PATH: %s" % (alt_paths[0]))
                     return alt_paths[0]
-                else:
+                elif mptcp_subtype == 0:
                     self.log.info("MPTCP %s => Primary Path" % (MPTCP_SUBTYPES[mptcp_subtype]))
                     self.log.info("PATH: %s" % (shortest_path))
                     return shortest_path
