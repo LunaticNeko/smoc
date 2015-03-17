@@ -2,6 +2,7 @@ from itertools import tee, izip
 from pox.lib.addresses import IPAddr
 from hashlib import sha1
 import struct
+from pprint import pprint
 
 class MPTCPPacketInfo:
     kind = 0x1e
@@ -10,16 +11,17 @@ class MPTCPPacketInfo:
     dstip = None
     srcport = None
     dstport = None
+    tcpflags = None
 
 class MPTCPCapablePacketInfo(MPTCPPacketInfo):
     subtype = 0
     version = None
-    flags = None
+    mpflags = None
     #flag_chksum = flag_a = None
     #flag_extensibility = flag_b = None
     #flag_hmac = flag_h = None
-    flag_sendkey = None
-    flag_recvkey = None
+    mpflag_sendkey = None
+    mpflag_recvkey = None
 
 class MPTCPJoinPacketInfo(MPTCPPacketInfo):
     subtype = 1
@@ -70,7 +72,7 @@ def inspect_mptcp_packet(packet):
     ip_packet = packet.find("ipv4")
 
     if tcp_packet is None:
-        raise MPTCPInvalidPacketException("Can't get TCP header.")
+        raise MPTCPInvalidPacketException("Can't find TCP header.")
 
     print dir(tcp_packet)
     print dir(ip_packet)
@@ -87,10 +89,10 @@ def inspect_mptcp_packet(packet):
                 return_packet.length = length
                 #if one key (length 12)
                 if length == MPTCP_MP_CAPABLE_ONEKEY_LENGTH:
-                    subtypeversion, return_packet.flags, return_packet.sendkey = struct.unpack('!BBQ',option.val[0])
+                    subtypeversion, return_packet.mpflags, return_packet.sendkey = struct.unpack('!BBQ',option.val[0])
                 #if two keys (length 20)
                 elif length == MPTCP_MP_CAPABLE_TWOKEY_LENGTH:
-                    subtypeversion, return_packet.flags, return_packet.sendkey, return_packet.recvkey = struct.unpack('!BBQQ',option.val[0])
+                    subtypeversion, return_packet.mpflags, return_packet.sendkey, return_packet.recvkey = struct.unpack('!BBQQ',option.val[0])
                 else:
                     raise MPTCPInvalidLengthException("Expected Length 12 or 20, got %d" % (length))
                 return_packet.version = subtypeversion & 0b1111
@@ -111,6 +113,7 @@ def inspect_mptcp_packet(packet):
         return_packet.dstip = ip_packet.dstip
     except:
         pass
+    pprint(return_packet)
     return return_packet
 
 
