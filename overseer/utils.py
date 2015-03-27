@@ -95,10 +95,10 @@ def inspect_mptcp_packet(packet):
                 return_packet.length = length
                 #if one key (length 12)
                 if length == MPTCP_MP_CAPABLE_ONEKEY_LENGTH:
-                    subtypeversion, return_packet.mpflags, return_packet.sendkey = struct.unpack('!BBQ',option.val)
+                    subtypeversion, return_packet.mpflags, return_packet.sendkey = struct.unpack('!BB8s',option.val)
                 #if two keys (length 20)
                 elif length == MPTCP_MP_CAPABLE_TWOKEY_LENGTH:
-                    subtypeversion, return_packet.mpflags, return_packet.sendkey, return_packet.recvkey = struct.unpack('!BBQQ',option.val)
+                    subtypeversion, return_packet.mpflags, return_packet.sendkey, return_packet.recvkey = struct.unpack('!BB8s8s',option.val)
                 else:
                     raise MPTCPInvalidLengthException("Expected Length 12 or 20, got %d" % (length))
                 return_packet.version = subtypeversion & 0b1111
@@ -107,7 +107,7 @@ def inspect_mptcp_packet(packet):
                 return_packet = MPTCPJoinPacketInfo()
                 return_packet.length = length
                 if length == MPTCP_MP_JOIN_LENGTH:
-                    subtypebackup, return_packet.addrid, return_packet.recvtok, return_packet.nonce = struct.unpack('!BBLL',option.val)
+                    subtypebackup, return_packet.addrid, return_packet.recvtok, return_packet.nonce = struct.unpack('!BB4s4s',option.val)
                     return_packet.backup = not not subtypebackup & 0b00000001
                 elif length == MPTCP_MP_JOIN2_LENGTH:
                     pass

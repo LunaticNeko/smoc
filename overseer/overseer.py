@@ -54,8 +54,14 @@ class Overseer (object):
     self.log = core.getLogger()
     self.flow_idle_timeout = flow_idle_timeout
     self.flow_hard_timeout = flow_hard_timeout
-    self.connections = {}
-    self.pathsets = {} # (token1,token2,swA,swB) => PathSet
+
+    '''
+    A pathset is just a bunch of paths put into itertools cycle type.
+    Use next(pathset) to get next path.
+    '''
+    self.pending_capable = {} # (init_ip, init_port, listen_ip, listen_port) => (init_hash, pathset)
+    self.pending_join = {} # (init_ip, init_port, listen_ip, listen_port) => (listen_hash, pathset)
+    self.mptcp_connections = {} # (from_hash, to_hash) => pathset
 
   def _handle_overseer_topology_LinkUp(self, event):
     graph = core.overseer_topology.graph
@@ -94,6 +100,22 @@ class Overseer (object):
     if tcp_packet is not None:
         mptcp_packet_info = utils.inspect_mptcp_packet(packet)
         print vars(mptcp_packet_info)
+        if isinstance(mptcp_packet_info, utils.MPTCPCapablePacketInfo):
+            if mptcp_packet_info.length == 12:
+                if (mptcp_packet_info.srcip, mptcp_packet_info.srcport, mptcp_packet_info.dstip, mptcp_packet_info.dstport) in self.pending_capable:
+                    #establish connection
+                    init_hash, pathset = self.pending_capable[(mptcp_packet_info.srcip, mptcp_packet_info.srcport, mptcp_packet_info.dstip, mptcp_packet_info.dstport)]
+                else:
+                    self.pending_capable[(mptcp_packet_info.srcip, mptcp_packet_info.srcport, mptcp_packet_info.dstip, mptcp_packet_info.dstport)] = (sha1(mptcp_packet_info.sendkey).hexdigest()[:8], self.get_path(from_host.dpid, to_host.dpid, packet))
+                print self.pending_capable
+            elif mptcp_packet_info.length == 20:
+                #get info from pending_capable
+                pass
+            else:
+                raise utils.MPTCPInvalidLengthException('Length should be 12 or 20, got %d (actually shouldn\'t have passed the inspect function. how did this happen?)'% (mptcp_packet_info.length))
+
+
+
 
     path = self.get_path(from_host.dpid, to_host.dpid, packet)
     match = of.ofp_match.from_packet(packet)
