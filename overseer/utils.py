@@ -3,6 +3,7 @@ from pox.lib.addresses import IPAddr
 from hashlib import sha1
 import struct
 from pprint import pprint
+from binascii import hexlify, unhexlify
 
 class MPTCPPacketInfo:
     kind = 0x1e
@@ -51,11 +52,12 @@ def inspect_mptcp_packet(packet):
 
     BIT/BYTE ORDER  of MPTCP option FIELDS
 
-      PacketType   TCPFlag  Subtype
-      CAPABLE 1    SYN      0
-      CAPABLE 2    SYNACK   0
-      JOIN 1       SYN      1
-      JOIN 2       SYNACK   1
+      PacketType   TCPFlag  Subtype  Length
+      CAPABLE 1    SYN      0        12
+      CAPABLE 2    SYNACK   0        20
+      JOIN 1       SYN      1        12
+      JOIN 2       SYNACK   1        16
+      JOIN 3       ACK      1        24    (not used by our controller)
     '''
 
     TCP_SYN = 0x02
@@ -64,8 +66,11 @@ def inspect_mptcp_packet(packet):
     MPTCP_MP_CAPABLE_ONEKEY_LENGTH = 12
     MPTCP_MP_CAPABLE_TWOKEY_LENGTH = 20
     MPTCP_MP_JOIN_LENGTH = 12
+    MPTCP_MP_JOIN2_LENGTH = 16
+    MPTCP_MP_JOIN3_LENGTH = 24
 
-    return_packet = None
+
+    return_packet = MPTCPPacketInfo()
 
     #print packet
     tcp_packet = packet.find("tcp")
@@ -74,25 +79,26 @@ def inspect_mptcp_packet(packet):
     if tcp_packet is None:
         raise MPTCPInvalidPacketException("Can't find TCP header.")
 
-    print dir(tcp_packet)
-    print dir(ip_packet)
+    #print dir(tcp_packet)
+    #print dir(ip_packet)
 
     for option in tcp_packet.options:
         if option.type == TCP_OPTION_KIND_MPTCP:
-            print option.val
             mptcp_subtype = struct.unpack('B', option.val[0])[0] >> 4
-            length = len(option.val)
-            print mptcp_subtype
+            length = len(option.val)+2 #two bytes were "cut" by POX parser
+            print "Subtype: %d" % (mptcp_subtype)
+            print "Length: %d" % (len(option.val))
+            print "TCPopt: %s" % (hexlify(option.val))
             if mptcp_subtype == 0:
                 subtypeversion = None
                 return_packet = MPTCPCapablePacketInfo()
                 return_packet.length = length
                 #if one key (length 12)
                 if length == MPTCP_MP_CAPABLE_ONEKEY_LENGTH:
-                    subtypeversion, return_packet.mpflags, return_packet.sendkey = struct.unpack('!BBQ',option.val[0])
+                    subtypeversion, return_packet.mpflags, return_packet.sendkey = struct.unpack('!BBQ',option.val)
                 #if two keys (length 20)
                 elif length == MPTCP_MP_CAPABLE_TWOKEY_LENGTH:
-                    subtypeversion, return_packet.mpflags, return_packet.sendkey, return_packet.recvkey = struct.unpack('!BBQQ',option.val[0])
+                    subtypeversion, return_packet.mpflags, return_packet.sendkey, return_packet.recvkey = struct.unpack('!BBQQ',option.val)
                 else:
                     raise MPTCPInvalidLengthException("Expected Length 12 or 20, got %d" % (length))
                 return_packet.version = subtypeversion & 0b1111
@@ -101,10 +107,14 @@ def inspect_mptcp_packet(packet):
                 return_packet = MPTCPJoinPacketInfo()
                 return_packet.length = length
                 if length == MPTCP_MP_JOIN_LENGTH:
-                    subtypebackup, return_packet.addrid, return_packet.recvtok, return_packet.nonce = struct.unpack('!BBLL',option.val[0])
+                    subtypebackup, return_packet.addrid, return_packet.recvtok, return_packet.nonce = struct.unpack('!BBLL',option.val)
                     return_packet.backup = not not subtypebackup & 0b00000001
+                elif length == MPTCP_MP_JOIN2_LENGTH:
+                    pass
+                elif length == MPTCP_MP_JOIN3_LENGTH:
+                    pass
                 else:
-                    raise MPTCPInvalidLengthException("Expected Length 12, got %d" % (length))
+                    raise MPTCPInvalidLengthException("Expected Length 12/16/20, got %d" % (length))
                 break
     try:
         return_packet.srcport = tcp_packet.srcport

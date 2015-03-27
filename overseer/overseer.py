@@ -14,6 +14,7 @@ import path_utils
 import expiringdict
 from hashlib import sha1
 import itertools
+from pprint import pprint
 
 TCP_OPTION_KIND_MPTCP = 0x1e
 
@@ -87,16 +88,16 @@ class Overseer (object):
     from_host = entryByMAC[source]
     to_host = entryByMAC[destination]
 
+    # TODO: INSPECT MPTCP AND PERFORM INFORMATION BASE OPERATIONS HERE
+    # (USE NEW FUNCTION IN utils)
+    tcp_packet = packet.find("tcp")
+    if tcp_packet is not None:
+        mptcp_packet_info = utils.inspect_mptcp_packet(packet)
+        print vars(mptcp_packet_info)
+
     path = self.get_path(from_host.dpid, to_host.dpid, packet)
     match = of.ofp_match.from_packet(packet)
     match.in_port = None
-
-    # TODO: INSPECT MPTCP AND PERFORM INFORMATION BASE OPERATIONS HERE
-    # (USE NEW FUNCTION IN utils)
-    print packet
-    print dir(packet)
-    if packet.find("tcp") is not None:
-        print utils.inspect_mptcp_packet(packet)
 
     self.log.info("Installing path from host %s to host %s" % (source, destination))
 
@@ -145,8 +146,7 @@ class Overseer (object):
         - Use least-conflicting, shortest path that's not used above
     """
 
-
-
+    self.log.info("Getting Path")
 
     # get shortest paths
     shortest_path = nx.shortest_path(core.overseer_topology.graph, from_dpid, to_dpid)
@@ -171,6 +171,7 @@ class Overseer (object):
         for option in tcp_packet.options:
             #self.log.debug('%s %s' % (option.type, type(option.val)))
             if option.type == TCP_OPTION_KIND_MPTCP:
+                self.log.info("Got MPTCP packet")
                 #Unpack one half-byte from the option (MPTCP Subtype)
                 mptcp_subtype = struct.unpack('B', option.val[0])[0] >> 4
                 self.log.info('TCPopt: %s' % (hexlify(option.val)))
