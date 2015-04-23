@@ -18,6 +18,15 @@ from pprint import pprint
 
 TCP_OPTION_KIND_MPTCP = 0x1e
 
+TCP_FIN = 0b1
+TCP_SYN = 0b10
+TCP_RST = 0b100
+TCP_PSH = 0b1000
+TCP_ACK = 0b10000
+TCP_URG = 0b100000
+TCP_ECN = 0b1000000
+TCP_CWR = 0b10000000
+
 MPTCP_SUBTYPES = {
             0: 'MP_CAPABLE',
             1: 'MP_JOIN',
@@ -98,15 +107,23 @@ class Overseer (object):
     # (USE NEW FUNCTION IN utils)
     tcp_packet = packet.find("tcp")
     if tcp_packet is not None:
+        print tcp_packet.flags, tcp_packet.SYN, tcp_packet.ACK
         mptcp_packet_info = utils.inspect_mptcp_packet(packet)
+        tcp_src = (mptcp_packet_info.srcip, mptcp_packet_info.srcport)
+        tcp_dst = (mptcp_packet_info.dstip, mptcp_packet_info.dstport)
         print vars(mptcp_packet_info)
         if isinstance(mptcp_packet_info, utils.MPTCPCapablePacketInfo):
             if mptcp_packet_info.length == 12:
-                if (mptcp_packet_info.srcip, mptcp_packet_info.srcport, mptcp_packet_info.dstip, mptcp_packet_info.dstport) in self.pending_capable:
-                    #establish connection
-                    init_hash, pathset = self.pending_capable[(mptcp_packet_info.srcip, mptcp_packet_info.srcport, mptcp_packet_info.dstip, mptcp_packet_info.dstport)]
-                else:
-                    self.pending_capable[(mptcp_packet_info.srcip, mptcp_packet_info.srcport, mptcp_packet_info.dstip, mptcp_packet_info.dstport)] = (sha1(mptcp_packet_info.sendkey).hexdigest()[:8], self.get_path(from_host.dpid, to_host.dpid, packet))
+                if (mptcp_packet_info.tcpflags & (TCP_SYN | TCP_ACK)) and (tcp_dst, tcp_src) in self.pending_capable:
+                    #second CAPABLE packet (syn/ack) => establish connection
+                    init_hash, pathset = self.pending_capable[(tcp_dst, tcp_src)]
+                    listen_hash = sha1(mptcp_packet_info.sendkey).hexdigest()[:8]
+                    self.log.info("MPTCP Established! %s [%s:%d] <=> %s [%s:%d]" % (init_hash, mptcp_packet_info.dstip, mptcp_packet_info.dstport, listen_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport))
+                elif mptcp_packet_info.tcpflags & TCP_SYN and not mptcp_packet_info.tcpflags & TCP_ACK:
+                    #first CAPABLE (syn) => new connection
+                    init_hash = sha1(mptcp_packet_info.sendkey).hexdigest()[:8]
+                    self.pending_capable[(tcp_src, tcp_dst)] = (init_hash, self.get_path(from_host.dpid, to_host.dpid, packet))
+                    self.log.info("MPTCP Pending Capable %s [%s:%d] ==> ??? [%s:%d]" % (init_hash, mptcp_packet_info.dstip, mptcp_packet_info.dstport, mptcp_packet_info.srcip, mptcp_packet_info.srcport))
                 print self.pending_capable
             elif mptcp_packet_info.length == 20:
                 #get info from pending_capable

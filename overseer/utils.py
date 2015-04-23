@@ -121,6 +121,7 @@ def inspect_mptcp_packet(packet):
         return_packet.dstport = tcp_packet.dstport
         return_packet.srcip = ip_packet.srcip
         return_packet.dstip = ip_packet.dstip
+        return_packet.tcpflags = tcp_packet.flags
     except:
         pass
     pprint(return_packet)
