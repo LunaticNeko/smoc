@@ -18,6 +18,13 @@ from pprint import pprint
 
 TCP_OPTION_KIND_MPTCP = 0x1e
 
+#
+# WARNING: ONE MACHINE MUST BE CONNECTED TO ONLY ONE SWITCH!!!!!!!
+#          THAT SWITCH CAN HOWEVER CONNECT TO ANY NUMBER OF SWITCHES.
+#          It's simpler to implement this way.
+#          (We will upgrade it to include full-multihoming later.)
+#
+
 TCP_FIN = 0b1
 TCP_SYN = 0b10
 TCP_RST = 0b100
@@ -123,7 +130,7 @@ class Overseer (object):
                     #first CAPABLE (syn) => new connection
                     init_hash = sha1(mptcp_packet_info.sendkey).hexdigest()[:8]
                     self.pending_capable[(tcp_src, tcp_dst)] = (init_hash, self.get_path(from_host.dpid, to_host.dpid, packet))
-                    self.log.info("MPTCP Pending Capable %s [%s:%d] ==> ??? [%s:%d]" % (init_hash, mptcp_packet_info.dstip, mptcp_packet_info.dstport, mptcp_packet_info.srcip, mptcp_packet_info.srcport))
+                    self.log.info("MPTCP Pending Capable %s [%s:%d] ==> ??? [%s:%d]" % (init_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport, mptcp_packet_info.dstip, mptcp_packet_info.dstport))
                 print self.pending_capable
             elif mptcp_packet_info.length == 20:
                 #get info from pending_capable
@@ -185,7 +192,7 @@ class Overseer (object):
         - Use least-conflicting, shortest path that's not used above
     """
 
-    self.log.info("Getting Path")
+    self.log.info("Getting Path (getpath)")
 
     # get shortest paths
     shortest_path = nx.shortest_path(core.overseer_topology.graph, from_dpid, to_dpid)

@@ -86,9 +86,7 @@ def inspect_mptcp_packet(packet):
         if option.type == TCP_OPTION_KIND_MPTCP:
             mptcp_subtype = struct.unpack('B', option.val[0])[0] >> 4
             length = len(option.val)+2 #two bytes were "cut" by POX parser
-            print "Subtype: %d" % (mptcp_subtype)
-            print "Length: %d" % (len(option.val))
-            print "TCPopt: %s" % (hexlify(option.val))
+            print "S/L/O: %d/%d/%s" % (mptcp_subtype, len(option.val), hexlify(option.val))
             if mptcp_subtype == 0:
                 subtypeversion = None
                 return_packet = MPTCPCapablePacketInfo()
