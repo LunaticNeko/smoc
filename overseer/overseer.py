@@ -15,6 +15,8 @@ import expiringdict
 from hashlib import sha1
 import itertools
 from pprint import pprint
+import traceback
+import sys
 
 TCP_OPTION_KIND_MPTCP = 0x1e
 
@@ -44,6 +46,9 @@ MPTCP_SUBTYPES = {
             6: 'MP_FAIL',
             7: 'MP_FASTCLOSE'
         }
+
+class PathSet(itertools.cycle):
+    pass
 
 class Overseer (object):
   """
@@ -114,11 +119,10 @@ class Overseer (object):
     # (USE NEW FUNCTION IN utils)
     tcp_packet = packet.find("tcp")
     if tcp_packet is not None:
-        print tcp_packet.flags, tcp_packet.SYN, tcp_packet.ACK
         mptcp_packet_info = utils.inspect_mptcp_packet(packet)
         tcp_src = (mptcp_packet_info.srcip, mptcp_packet_info.srcport)
         tcp_dst = (mptcp_packet_info.dstip, mptcp_packet_info.dstport)
-        print vars(mptcp_packet_info)
+        self.log.info("MPTCP Packet Info:" % (vars(mptcp_packet_info)))
         if isinstance(mptcp_packet_info, utils.MPTCPCapablePacketInfo):
             if mptcp_packet_info.length == 12:
                 if (mptcp_packet_info.tcpflags & (TCP_SYN | TCP_ACK)) and (tcp_dst, tcp_src) in self.pending_capable:
@@ -129,9 +133,13 @@ class Overseer (object):
                 elif mptcp_packet_info.tcpflags & TCP_SYN and not mptcp_packet_info.tcpflags & TCP_ACK:
                     #first CAPABLE (syn) => new connection
                     init_hash = sha1(mptcp_packet_info.sendkey).hexdigest()[:8]
-                    self.pending_capable[(tcp_src, tcp_dst)] = (init_hash, self.get_path(from_host.dpid, to_host.dpid, packet))
-                    self.log.info("MPTCP Pending Capable %s [%s:%d] ==> ??? [%s:%d]" % (init_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport, mptcp_packet_info.dstip, mptcp_packet_info.dstport))
-                print self.pending_capable
+                    multipath_entry = self.get_multipath(from_host.dpid, to_host.dpid)
+                    self.pending_capable[(tcp_src, tcp_dst)] = (init_hash, multipath_entry)
+                    #consider: get_multipath(from_host.dpid, to_host.dpid)
+                    self.log.info("MPTCP Pending Capable %s [%s:%d] ==> ??? [%s:%d]\n   Path: %s" % (init_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport, mptcp_packet_info.dstip, mptcp_packet_info.dstport, multipath_entry))
+                self.log.info("Pending Capable Connections")
+                self.log.info(self.pending_capable)
+                self.log.info("///")
             elif mptcp_packet_info.length == 20:
                 #get info from pending_capable
                 pass
@@ -174,7 +182,13 @@ class Overseer (object):
     message.actions.append(of.ofp_action_output(port=to_host.port))
     core.overseer_topology.graph.node[path[-1]]['connection'].send(message)
 
-  def get_mptcp_path(self, token):
+  def get_multipath(self, from_dpid, to_dpid):
+    ''' Returns a cycle iterable aliased as PathSet '''
+    return PathSet(list(nx.all_simple_paths(core.overseer_topology.graph, from_dpid, to_dpid)))
+
+  def get_mptcp_path(self, src_token=None, dst_token=None):
+    # search connection table
+    # search pathset table
     pass
 
   def get_path(self, from_dpid, to_dpid, packet):
@@ -193,6 +207,9 @@ class Overseer (object):
     """
 
     self.log.info("Getting Path (getpath)")
+    #debug
+    #traceback.print_stack(file=sys.stdout)
+
 
     # get shortest paths
     shortest_path = nx.shortest_path(core.overseer_topology.graph, from_dpid, to_dpid)

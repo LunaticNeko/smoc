@@ -63,12 +63,14 @@ def inspect_mptcp_packet(packet):
     TCP_SYN = 0x02
     TCP_SYNACK = 0x12
     TCP_OPTION_KIND_MPTCP = 0x1e
+    MPTCP_SUBTYPE_MP_CAPABLE = 0
+    MPTCP_SUBTYPE_MP_JOIN = 1
     MPTCP_MP_CAPABLE_ONEKEY_LENGTH = 12
     MPTCP_MP_CAPABLE_TWOKEY_LENGTH = 20
     MPTCP_MP_JOIN_LENGTH = 12
     MPTCP_MP_JOIN2_LENGTH = 16
     MPTCP_MP_JOIN3_LENGTH = 24
-
+    MPTCP_SUBTYPE_STR = ['CAPABLE', 'JOIN', 'DSS', 'ADD_ADDR', 'REMOVE_ADDR', 'PRIO', 'FAIL', 'FASTCLOSE']
 
     return_packet = MPTCPPacketInfo()
 
@@ -84,10 +86,11 @@ def inspect_mptcp_packet(packet):
 
     for option in tcp_packet.options:
         if option.type == TCP_OPTION_KIND_MPTCP:
+            print "S(x): %x" % (ord(option.val[0]))
             mptcp_subtype = struct.unpack('B', option.val[0])[0] >> 4
             length = len(option.val)+2 #two bytes were "cut" by POX parser
-            print "S/L/O: %d/%d/%s" % (mptcp_subtype, len(option.val), hexlify(option.val))
-            if mptcp_subtype == 0:
+            print "S/L/O: %d/%d/%s" % (mptcp_subtype, length, hexlify(option.val))
+            if mptcp_subtype == MPTCP_SUBTYPE_MP_CAPABLE:
                 subtypeversion = None
                 return_packet = MPTCPCapablePacketInfo()
                 return_packet.length = length
@@ -98,10 +101,10 @@ def inspect_mptcp_packet(packet):
                 elif length == MPTCP_MP_CAPABLE_TWOKEY_LENGTH:
                     subtypeversion, return_packet.mpflags, return_packet.sendkey, return_packet.recvkey = struct.unpack('!BB8s8s',option.val)
                 else:
-                    raise MPTCPInvalidLengthException("Expected Length 12 or 20, got %d" % (length))
+                    raise MPTCPInvalidLengthException("Expected Length 12 or 20, got %d. Opt Str: : " % (length))
                 return_packet.version = subtypeversion & 0b1111
                 break
-            elif mptcp_subtype == 1:
+            elif mptcp_subtype == MPTCP_SUBTYPE_MP_JOIN:
                 return_packet = MPTCPJoinPacketInfo()
                 return_packet.length = length
                 if length == MPTCP_MP_JOIN_LENGTH:
@@ -114,6 +117,8 @@ def inspect_mptcp_packet(packet):
                 else:
                     raise MPTCPInvalidLengthException("Expected Length 12/16/20, got %d" % (length))
                 break
+            else: #MPTCP but not MP_CAPABLE or MP_JOIN
+                pass
     try:
         return_packet.srcport = tcp_packet.srcport
         return_packet.dstport = tcp_packet.dstport
