@@ -84,6 +84,9 @@ class Overseer (object):
     self.pending_join = {} # (init_ip, init_port, listen_ip, listen_port) => (listen_hash, pathset)
     self.mptcp_connections = {} # (from_hash, to_hash) => pathset
 
+    # TODO: support true-multihomed configs
+    #       connections: (from_hash, from_sw, to_hash, to_sw) => pathset
+
   def _handle_overseer_topology_LinkUp(self, event):
     graph = core.overseer_topology.graph
     self.log.debug('linkup %s -- %s' % (event.dpid1, event.dpid2))
@@ -129,7 +132,16 @@ class Overseer (object):
                     #second CAPABLE packet (syn/ack) => establish connection
                     init_hash, pathset = self.pending_capable[(tcp_dst, tcp_src)]
                     listen_hash = sha1(mptcp_packet_info.sendkey).hexdigest()[:8]
+                    multipath_entry = self.get_multipath(from_host.dpid, to_host.dpid)
+                    # match from pending-database and add two connections
+                    self.mptcp_connections[init_hash, listen_hash] = pathset
+                    self.mptcp_connections[listen_hash, init_hash] = multipath_entry
+
+                    # delete from pending-database
+                    self.pending_capable.pop((tcp_dst, tcp_src), None)
+
                     self.log.info("MPTCP Established! %s [%s:%d] <=> %s [%s:%d]" % (init_hash, mptcp_packet_info.dstip, mptcp_packet_info.dstport, listen_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport))
+
                 elif mptcp_packet_info.tcpflags & TCP_SYN and not mptcp_packet_info.tcpflags & TCP_ACK:
                     #first CAPABLE (syn) => new connection
                     init_hash = sha1(mptcp_packet_info.sendkey).hexdigest()[:8]
@@ -145,7 +157,8 @@ class Overseer (object):
                 pass
             else:
                 raise utils.MPTCPInvalidLengthException('Length should be 12 or 20, got %d (actually shouldn\'t have passed the inspect function. how did this happen?)'% (mptcp_packet_info.length))
-
+        elif isinstance(mptcp_packet_info, utils.MPTCPJoinPacketInfo):
+            pass
 
 
 
