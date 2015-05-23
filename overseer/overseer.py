@@ -82,7 +82,7 @@ class Overseer (object):
     '''
     self.pending_capable = {} # (init_ip, init_port, listen_ip, listen_port) => (init_hash, pathset)
     self.pending_join = {} # (init_ip, init_port, listen_ip, listen_port) => (listen_hash, pathset)
-    self.mptcp_connections = {} # (from_hash, to_hash) => pathset
+    self.mptcp_connections = {} # (to_hash) => from_hash, pathset
 
     # TODO: support true-multihomed configs
     #       connections: (from_hash, from_sw, to_hash, to_sw) => pathset
@@ -134,8 +134,8 @@ class Overseer (object):
                     listen_hash = sha1(mptcp_packet_info.sendkey).hexdigest()[:8]
                     multipath_entry = self.get_multipath(from_host.dpid, to_host.dpid)
                     # match from pending-database and add two connections
-                    self.mptcp_connections[init_hash, listen_hash] = pathset
-                    self.mptcp_connections[listen_hash, init_hash] = multipath_entry
+                    self.mptcp_connections[init_hash] = (listen_hash, pathset)
+                    self.mptcp_connections[listen_hash] = (init_hash, multipath_entry)
 
                     # delete from pending-database
                     self.pending_capable.pop((tcp_dst, tcp_src), None)
@@ -149,16 +149,28 @@ class Overseer (object):
                     self.pending_capable[(tcp_src, tcp_dst)] = (init_hash, multipath_entry)
                     #consider: get_multipath(from_host.dpid, to_host.dpid)
                     self.log.info("MPTCP Pending Capable %s [%s:%d] ==> ??? [%s:%d]\n   Path: %s" % (init_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport, mptcp_packet_info.dstip, mptcp_packet_info.dstport, multipath_entry))
-                self.log.info("Pending Capable Connections")
+                self.log.info("/// Pending Capable Connections")
                 self.log.info(self.pending_capable)
+                self.log.info("/// Current Connections")
+                self.log.info(self.mptcp_connections)
                 self.log.info("///")
             elif mptcp_packet_info.length == 20:
-                #get info from pending_capable
+                # not exactly what we wanted. pass.
                 pass
             else:
                 raise utils.MPTCPInvalidLengthException('Length should be 12 or 20, got %d (actually shouldn\'t have passed the inspect function. how did this happen?)'% (mptcp_packet_info.length))
         elif isinstance(mptcp_packet_info, utils.MPTCPJoinPacketInfo):
-            pass
+            # get connection instance
+            if mptcp_packet_info.recvtok in self.mptcp_connections and mptcp_packet_info.recvtok is not None:
+                from_hash, pathset = self.mptcp_connections[mptcp_packet_info.recvtok]
+                self.log.info("Matched Connection: %s <==> %s" % (mptcp_packet_info.recvtok, from_hash))
+                self.pending_join[(tcp_src, tcp_dst)] = (init_hash, pathset) #pathset will refer to the same pathset as parent session
+                # create entry in pending join
+            elif mptcp_packet_info.recvtok in self.mptcp_connections and mptcp_packet_info.recvtok is None:
+                # match from pending join
+                pass
+            else:
+                self.log.info("%s has no matched connection" % (mptcp_packet_info.recvtok))
 
 
 

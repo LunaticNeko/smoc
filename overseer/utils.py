@@ -30,6 +30,7 @@ class MPTCPJoinPacketInfo(MPTCPPacketInfo):
     addrid = None
     recvtok = None
     nonce = None
+    hmac = None
 
 class MPTCPInvalidLengthException(Exception):
     pass
@@ -86,7 +87,6 @@ def inspect_mptcp_packet(packet):
 
     for option in tcp_packet.options:
         if option.type == TCP_OPTION_KIND_MPTCP:
-            print "S(x): %x" % (ord(option.val[0]))
             mptcp_subtype = struct.unpack('B', option.val[0])[0] >> 4
             length = len(option.val)+2 #two bytes were "cut" by POX parser
             print "S/L/O: %d/%d/%s" % (mptcp_subtype, length, hexlify(option.val))
@@ -100,8 +100,10 @@ def inspect_mptcp_packet(packet):
                 #if two keys (length 20)
                 elif length == MPTCP_MP_CAPABLE_TWOKEY_LENGTH:
                     subtypeversion, return_packet.mpflags, return_packet.sendkey, return_packet.recvkey = struct.unpack('!BB8s8s',option.val)
+                elif length == 22: #DEBUG
+                    subtypeversion = 0 #DEBUG
                 else:
-                    raise MPTCPInvalidLengthException("Expected Length 12 or 20, got %d. Opt Str: : " % (length))
+                    raise MPTCPInvalidLengthException("Expected Length 12 or 20, got %d. Opt Str: %s " % (length, hexlify(option.val)))
                 return_packet.version = subtypeversion & 0b1111
                 break
             elif mptcp_subtype == MPTCP_SUBTYPE_MP_JOIN:
@@ -111,7 +113,7 @@ def inspect_mptcp_packet(packet):
                     subtypebackup, return_packet.addrid, return_packet.recvtok, return_packet.nonce = struct.unpack('!BB4s4s',option.val)
                     return_packet.backup = not not subtypebackup & 0b00000001
                 elif length == MPTCP_MP_JOIN2_LENGTH:
-                    pass
+                    subtypebackup, return_packet.addrid, return_packet.hmac, return_packet.nonce = struct.unpack('!BB8s4s',option.val)
                 elif length == MPTCP_MP_JOIN3_LENGTH:
                     pass
                 else:
