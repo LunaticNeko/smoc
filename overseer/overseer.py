@@ -132,10 +132,10 @@ class Overseer (object):
                     #second CAPABLE packet (syn/ack) => establish connection
                     init_hash, pathset = self.pending_capable[(tcp_dst, tcp_src)]
                     listen_hash = sha1(mptcp_packet_info.sendkey).hexdigest()[:8]
-                    multipath_entry = self.get_multipath(from_host.dpid, to_host.dpid)
+                    back_pathset = self.get_multipath(from_host.dpid, to_host.dpid)
                     # match from pending-database and add two connections
-                    self.mptcp_connections[init_hash] = (listen_hash, pathset)
-                    self.mptcp_connections[listen_hash] = (init_hash, multipath_entry)
+                    self.mptcp_connections[init_hash] = (listen_hash, back_pathset)
+                    self.mptcp_connections[listen_hash] = (init_hash, pathset)
 
                     # delete from pending-database
                     self.pending_capable.pop((tcp_dst, tcp_src), None)
@@ -145,15 +145,10 @@ class Overseer (object):
                 elif mptcp_packet_info.tcpflags & TCP_SYN and not mptcp_packet_info.tcpflags & TCP_ACK:
                     #first CAPABLE (syn) => new connection
                     init_hash = sha1(mptcp_packet_info.sendkey).hexdigest()[:8]
-                    multipath_entry = self.get_multipath(from_host.dpid, to_host.dpid)
-                    self.pending_capable[(tcp_src, tcp_dst)] = (init_hash, multipath_entry)
+                    pathset = self.get_multipath(from_host.dpid, to_host.dpid)
+                    self.pending_capable[(tcp_src, tcp_dst)] = (init_hash, pathset)
                     #consider: get_multipath(from_host.dpid, to_host.dpid)
-                    self.log.info("MPTCP Pending Capable %s [%s:%d] ==> ??? [%s:%d]\n   Path: %s" % (init_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport, mptcp_packet_info.dstip, mptcp_packet_info.dstport, multipath_entry))
-                self.log.info("/// Pending Capable Connections")
-                self.log.info(self.pending_capable)
-                self.log.info("/// Current Connections")
-                self.log.info(self.mptcp_connections)
-                self.log.info("///")
+                    self.log.info("MPTCP Pending Capable %s [%s:%d] ==> ??? [%s:%d]\n   Path: %s" % (init_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport, mptcp_packet_info.dstip, mptcp_packet_info.dstport, pathset))
             elif mptcp_packet_info.length == 20:
                 # not exactly what we wanted. pass.
                 pass
@@ -162,17 +157,25 @@ class Overseer (object):
         elif isinstance(mptcp_packet_info, utils.MPTCPJoinPacketInfo):
             # get connection instance
             if mptcp_packet_info.recvtok in self.mptcp_connections and mptcp_packet_info.recvtok is not None:
-                from_hash, pathset = self.mptcp_connections[mptcp_packet_info.recvtok]
-                self.log.info("Matched Connection: %s <==> %s" % (mptcp_packet_info.recvtok, from_hash))
+                to_hash = sha1(mptcp_packet_info.recvtok).hexdigest()[:8]
+                from_hash, pathset = self.mptcp_connections[to_hash]
+                self.log.info("JOIN: Matched CAPABLE Connection: %s [%s:%d] ==> %s [%s:%d]\n    Path: %s" % (from_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport, to_hash, mptcp_packet_info.dstip, mptcp_packet_info.dstport, pathset))
                 self.pending_join[(tcp_src, tcp_dst)] = (init_hash, pathset) #pathset will refer to the same pathset as parent session
                 # create entry in pending join
-            elif mptcp_packet_info.recvtok in self.mptcp_connections and mptcp_packet_info.recvtok is None:
+            elif mptcp_packet_info.recvtok in self.mptcp_connections and (tcp_dst, tcp_src) in self.pending_join:
                 # match from pending join
-                pass
+                init_hash, pathset = self.pending_join[(tcp_dst, tcp_src)]
+                listen_hash, pathset = self.mptcp_connections[init_hash]
+                back_pathset = self.mptcp_connections[listen_hash]
+                self.log.info("JOIN: Established JOIN Connection %s [%s:%d] <=> %s [%s:%d]\n    Path: %s" % (init_hash, mptcp_packet_info.dstip, mptcp_packet_info.dstport, listen_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport, back_pathset))
             else:
                 self.log.info("%s has no matched connection" % (mptcp_packet_info.recvtok))
 
-
+            self.log.info("/// Pending Capable Connections")
+            self.log.info(self.pending_capable)
+            self.log.info("/// Current Connections")
+            self.log.info(self.mptcp_connections)
+            self.log.info("///")
 
     path = self.get_path(from_host.dpid, to_host.dpid, packet)
     match = of.ofp_match.from_packet(packet)
