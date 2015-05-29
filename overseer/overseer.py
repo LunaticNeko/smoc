@@ -155,27 +155,34 @@ class Overseer (object):
             else:
                 raise utils.MPTCPInvalidLengthException('Length should be 12 or 20, got %d (actually shouldn\'t have passed the inspect function. how did this happen?)'% (mptcp_packet_info.length))
         elif isinstance(mptcp_packet_info, utils.MPTCPJoinPacketInfo):
+            recvtok = None
+            if mptcp_packet_info.recvtok is not None:
+                recvtok = hexlify(mptcp_packet_info.recvtok)
             # get connection instance
-            if mptcp_packet_info.recvtok in self.mptcp_connections and mptcp_packet_info.recvtok is not None:
-                to_hash = sha1(mptcp_packet_info.recvtok).hexdigest()[:8]
+            if recvtok in self.mptcp_connections and recvtok is not None:
+                to_hash = recvtok
                 from_hash, pathset = self.mptcp_connections[to_hash]
                 self.log.info("JOIN: Matched CAPABLE Connection: %s [%s:%d] ==> %s [%s:%d]\n    Path: %s" % (from_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport, to_hash, mptcp_packet_info.dstip, mptcp_packet_info.dstport, pathset))
-                self.pending_join[(tcp_src, tcp_dst)] = (init_hash, pathset) #pathset will refer to the same pathset as parent session
+                self.pending_join[(tcp_src, tcp_dst)] = (from_hash, pathset) #pathset will refer to the same pathset as parent session
                 # create entry in pending join
-            elif mptcp_packet_info.recvtok in self.mptcp_connections and (tcp_dst, tcp_src) in self.pending_join:
+            elif (tcp_dst, tcp_src) in self.pending_join:
                 # match from pending join
                 init_hash, pathset = self.pending_join[(tcp_dst, tcp_src)]
                 listen_hash, pathset = self.mptcp_connections[init_hash]
                 back_pathset = self.mptcp_connections[listen_hash]
                 self.log.info("JOIN: Established JOIN Connection %s [%s:%d] <=> %s [%s:%d]\n    Path: %s" % (init_hash, mptcp_packet_info.dstip, mptcp_packet_info.dstport, listen_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport, back_pathset))
+                # delete from pending join
+                self.pending_join.pop((tcp_dst, tcp_src), None)
             else:
-                self.log.info("%s has no matched connection" % (mptcp_packet_info.recvtok))
+                self.log.info("%s has no matched connection" % (recvtok))
 
-            self.log.info("/// Pending Capable Connections")
-            self.log.info(self.pending_capable)
-            self.log.info("/// Current Connections")
-            self.log.info(self.mptcp_connections)
-            self.log.info("///")
+        self.log.info("/// Pending Capable Connections")
+        self.log.info(self.pending_capable)
+        self.log.info("/// Pending Join Connections")
+        self.log.info(self.pending_join)
+        self.log.info("/// Current Connections")
+        self.log.info(self.mptcp_connections)
+        self.log.info("///")
 
     path = self.get_path(from_host.dpid, to_host.dpid, packet)
     match = of.ofp_match.from_packet(packet)
