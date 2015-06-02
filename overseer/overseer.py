@@ -83,6 +83,7 @@ class Overseer (object):
     self.pending_capable = {} # (init_ip, init_port, listen_ip, listen_port) => (init_hash, pathset)
     self.pending_join = {} # (init_ip, init_port, listen_ip, listen_port) => (listen_hash, pathset)
     self.mptcp_connections = {} # (to_hash) => from_hash, pathset
+    self.tcp_path_assignment = {} # (srcip, srcport, dstip, dstport) => path
 
     # TODO: support true-multihomed configs
     #       connections: (from_hash, from_sw, to_hash, to_sw) => pathset
@@ -96,6 +97,7 @@ class Overseer (object):
     packet = event.parsed
     source = packet.src
     destination = packet.dst
+    path = None #no path yet, we will assign later
 
     if destination.is_multicast:
       # Flood the packet
@@ -125,7 +127,6 @@ class Overseer (object):
         mptcp_packet_info = utils.inspect_mptcp_packet(packet)
         tcp_src = (mptcp_packet_info.srcip, mptcp_packet_info.srcport)
         tcp_dst = (mptcp_packet_info.dstip, mptcp_packet_info.dstport)
-        self.log.info("MPTCP Packet Info:" % (vars(mptcp_packet_info)))
         if isinstance(mptcp_packet_info, utils.MPTCPCapablePacketInfo):
             if mptcp_packet_info.length == 12:
                 if (mptcp_packet_info.tcpflags & (TCP_SYN | TCP_ACK)) and (tcp_dst, tcp_src) in self.pending_capable:
@@ -139,8 +140,10 @@ class Overseer (object):
 
                     # delete from pending-database
                     self.pending_capable.pop((tcp_dst, tcp_src), None)
-
                     self.log.info("MPTCP Established! %s [%s:%d] <=> %s [%s:%d]" % (init_hash, mptcp_packet_info.dstip, mptcp_packet_info.dstport, listen_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport))
+
+                    path = back_pathset.next()
+                    self.log.info("Path Chosen: %s from %s" % (path, back_pathset))
 
                 elif mptcp_packet_info.tcpflags & TCP_SYN and not mptcp_packet_info.tcpflags & TCP_ACK:
                     #first CAPABLE (syn) => new connection
@@ -149,11 +152,13 @@ class Overseer (object):
                     self.pending_capable[(tcp_src, tcp_dst)] = (init_hash, pathset)
                     #consider: get_multipath(from_host.dpid, to_host.dpid)
                     self.log.info("MPTCP Pending Capable %s [%s:%d] ==> ??? [%s:%d]\n   Path: %s" % (init_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport, mptcp_packet_info.dstip, mptcp_packet_info.dstport, pathset))
+                    path = pathset.next()
+                    self.log.info("Path Chosen: %s from %s" % (path, pathset))
             elif mptcp_packet_info.length == 20:
                 # not exactly what we wanted. pass.
                 pass
             else:
-                raise utils.MPTCPInvalidLengthException('Length should be 12 or 20, got %d (actually shouldn\'t have passed the inspect function. how did this happen?)'% (mptcp_packet_info.length))
+                pass
         elif isinstance(mptcp_packet_info, utils.MPTCPJoinPacketInfo):
             recvtok = None
             if mptcp_packet_info.recvtok is not None:
@@ -163,18 +168,24 @@ class Overseer (object):
                 to_hash = recvtok
                 from_hash, pathset = self.mptcp_connections[to_hash]
                 self.log.info("JOIN: Matched CAPABLE Connection: %s [%s:%d] ==> %s [%s:%d]\n    Path: %s" % (from_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport, to_hash, mptcp_packet_info.dstip, mptcp_packet_info.dstport, pathset))
-                self.pending_join[(tcp_src, tcp_dst)] = (from_hash, pathset) #pathset will refer to the same pathset as parent session
                 # create entry in pending join
+                self.pending_join[(tcp_src, tcp_dst)] = (from_hash, pathset)
+                path = pathset.next()
+                self.log.info("Path Chosen: %s from %s" % (path, pathset))
             elif (tcp_dst, tcp_src) in self.pending_join:
                 # match from pending join
                 init_hash, pathset = self.pending_join[(tcp_dst, tcp_src)]
                 listen_hash, pathset = self.mptcp_connections[init_hash]
-                back_pathset = self.mptcp_connections[listen_hash]
+                some_hash, back_pathset = self.mptcp_connections[listen_hash]
                 self.log.info("JOIN: Established JOIN Connection %s [%s:%d] <=> %s [%s:%d]\n    Path: %s" % (init_hash, mptcp_packet_info.dstip, mptcp_packet_info.dstport, listen_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport, back_pathset))
                 # delete from pending join
                 self.pending_join.pop((tcp_dst, tcp_src), None)
+                path = back_pathset.next()
+                self.log.info("Path Chosen: %s from %s" % (path, back_pathset))
             else:
                 self.log.info("%s has no matched connection" % (recvtok))
+        else: #other MPTCP: latch it along some path if it matches existing connection, else send it along shortest path
+            pass
 
         self.log.info("/// Pending Capable Connections")
         self.log.info(self.pending_capable)
@@ -183,8 +194,12 @@ class Overseer (object):
         self.log.info("/// Current Connections")
         self.log.info(self.mptcp_connections)
         self.log.info("///")
+        if path is None:
+            path = self.get_path(from_host.dpid, to_host.dpid, packet)
+        self.tcp_path_assignment[(tcp_src, tcp_dst)] = path
 
-    path = self.get_path(from_host.dpid, to_host.dpid, packet)
+    if path is None or True:
+        path = self.get_path(from_host.dpid, to_host.dpid, packet)
     match = of.ofp_match.from_packet(packet)
     match.in_port = None
 
@@ -221,11 +236,6 @@ class Overseer (object):
     ''' Returns a cycle iterable aliased as PathSet '''
     return PathSet(list(nx.all_simple_paths(core.overseer_topology.graph, from_dpid, to_dpid)))
 
-  def get_mptcp_path(self, src_token=None, dst_token=None):
-    # search connection table
-    # search pathset table
-    pass
-
   def get_path(self, from_dpid, to_dpid, packet):
     # TODO: Support IPv6
 
@@ -242,9 +252,6 @@ class Overseer (object):
     """
 
     self.log.info("Getting Path (getpath)")
-    #debug
-    #traceback.print_stack(file=sys.stdout)
-
 
     # get shortest paths
     shortest_path = nx.shortest_path(core.overseer_topology.graph, from_dpid, to_dpid)
@@ -269,10 +276,9 @@ class Overseer (object):
         for option in tcp_packet.options:
             #self.log.debug('%s %s' % (option.type, type(option.val)))
             if option.type == TCP_OPTION_KIND_MPTCP:
-                self.log.info("Got MPTCP packet")
                 #Unpack one half-byte from the option (MPTCP Subtype)
                 mptcp_subtype = struct.unpack('B', option.val[0])[0] >> 4
-                self.log.info('TCPopt: %s' % (hexlify(option.val)))
+                self.log.info('MPTCP opt: %s' % (hexlify(option.val)))
                 #self.log.debug(MPTCP_SUBTYPES[mptcp_subtype])
                 if mptcp_subtype == 1:
                     #pick the first Alt. Path
@@ -282,6 +288,8 @@ class Overseer (object):
                 elif mptcp_subtype == 0:
                     self.log.info("MPTCP %s => Primary Path" % (MPTCP_SUBTYPES[mptcp_subtype]))
                     self.log.info("PATH: %s" % (shortest_path))
+                    return shortest_path
+                else:
                     return shortest_path
 
     # if all else fails, use default Overseer behavior
