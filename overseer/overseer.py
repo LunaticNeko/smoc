@@ -180,8 +180,8 @@ class Overseer (object):
                 self.log.info("JOIN: Established JOIN Connection %s [%s:%d] <=> %s [%s:%d]\n    Path: %s" % (init_hash, mptcp_packet_info.dstip, mptcp_packet_info.dstport, listen_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport, back_pathset))
                 # delete from pending join
                 self.pending_join.pop((tcp_dst, tcp_src), None)
-                path = back_pathset.next()
-                self.log.info("Path Chosen: %s from %s" % (path, back_pathset))
+                path = pathset.next()
+                self.log.info("Path Chosen: %s from %s" % (path, pathset))
             else:
                 self.log.info("%s has no matched connection" % (recvtok))
         else: #other MPTCP: latch it along some path if it matches existing connection, else send it along shortest path
@@ -198,7 +198,7 @@ class Overseer (object):
             path = self.get_path(from_host.dpid, to_host.dpid, packet)
         self.tcp_path_assignment[(tcp_src, tcp_dst)] = path
 
-    if path is None or True:
+    if path is None:
         path = self.get_path(from_host.dpid, to_host.dpid, packet)
     match = of.ofp_match.from_packet(packet)
     match.in_port = None
@@ -210,7 +210,7 @@ class Overseer (object):
     # first = True
     for from_switch, to_switch in utils.pairwise(path):
       portByDpid = core.overseer_topology.graph.get_edge_data(from_switch, to_switch)["portByDpid"]
-      self.log.info("Installing flow from switch %x[%d] to switch %x" % (from_switch, portByDpid[from_switch], to_switch))
+      #self.log.info("Installing flow from switch %x[%d] to switch %x" % (from_switch, portByDpid[from_switch], to_switch))
       message = of.ofp_flow_mod()
       message.match = match
       message.idle_timeout = self.flow_idle_timeout
@@ -224,7 +224,7 @@ class Overseer (object):
       core.overseer_topology.graph.node[from_switch]['connection'].send(message)
 
     # Install final flow
-    self.log.info("Installing final flow from switch %x[%d] to host %s" % (path[-1], to_host.port, destination))
+    #self.log.info("Installing final flow from switch %x[%d] to host %s" % (path[-1], to_host.port, destination))
     message = of.ofp_flow_mod()
     message.match = match
     message.idle_timeout = self.flow_idle_timeout
@@ -234,7 +234,14 @@ class Overseer (object):
 
   def get_multipath(self, from_dpid, to_dpid):
     ''' Returns a cycle iterable aliased as PathSet '''
-    return PathSet(list(nx.all_simple_paths(core.overseer_topology.graph, from_dpid, to_dpid)))
+    primary_path = nx.shortest_path(core.overseer_topology.graph, from_dpid, to_dpid)
+    path_list  = list(nx.all_simple_paths(core.overseer_topology.graph, from_dpid, to_dpid))
+    path_list.remove(primary_path)
+    path_list = path_utils.sort_path_list(primary_path, path_list)
+    path_list.insert(0, primary_path)
+    pathset = PathSet(path_list)
+    self.log.info("Pathset Created: %s" % (path_list))
+    return pathset
 
   def get_path(self, from_dpid, to_dpid, packet):
     # TODO: Support IPv6
