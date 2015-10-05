@@ -14,6 +14,8 @@ def launch():
   pox.misc.gephi_topo.launch()
   import pox.host_tracker
   pox.host_tracker.launch(arpAware=15, arpSilent=45, arpReply=1, entryMove=10)
+  import pox.topology
+  pox.topology.launch()
   import smoc.topology
   smoc.topology.launch()
   import pox.openflow.spanning_tree
@@ -24,3 +26,5 @@ def launch():
   pox.web.webcore.launch()
   #import overseer.api
   #overseer.api.launch()
+  import mupoxstats
+  mupoxstats.launch()

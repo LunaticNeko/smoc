@@ -258,7 +258,7 @@ class Overseer (object):
         - Use least-conflicting, shortest path that's not used above
     """
 
-    self.log.info("Getting Path (getpath)")
+    #self.log.info("Getting Path (getpath)")
 
     # get shortest paths
     shortest_path = nx.shortest_path(core.overseer_topology.graph, from_dpid, to_dpid)
