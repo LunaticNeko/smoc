@@ -75,50 +75,32 @@ def inspect_mptcp_packet(packet):
 
     return_packet = MPTCPPacketInfo()
 
-    #print packet
     tcp_packet = packet.find("tcp")
     ip_packet = packet.find("ipv4")
 
     if tcp_packet is None:
         raise MPTCPInvalidPacketException("Can't find TCP header.")
 
-    #print dir(tcp_packet)
-    #print dir(ip_packet)
-
     for option in tcp_packet.options:
         if option.type == TCP_OPTION_KIND_MPTCP:
-            mptcp_subtype = struct.unpack('B', option.val[0])[0] >> 4
-            length = len(option.val)+2 #two bytes were "cut" by POX parser
-            print "S/L/O: %d/%d/%s" % (mptcp_subtype, length, hexlify(option.val))
+            print dir(option)
+            mptcp_subtype = option.subtype
+            print "S: %s" % (mptcp_subtype)
             if mptcp_subtype == MPTCP_SUBTYPE_MP_CAPABLE:
                 subtypeversion = None
                 return_packet = MPTCPCapablePacketInfo()
-                return_packet.length = length
-                #if one key (length 12)
-                if length == MPTCP_MP_CAPABLE_ONEKEY_LENGTH:
-                    subtypeversion, return_packet.mpflags, return_packet.sendkey = struct.unpack('!BB8s',option.val)
-                #if two keys (length 20)
-                elif length == MPTCP_MP_CAPABLE_TWOKEY_LENGTH:
-                    subtypeversion, return_packet.mpflags, return_packet.sendkey, return_packet.recvkey = struct.unpack('!BB8s8s',option.val)
-                elif length == 22: #DEBUG
-                    subtypeversion = 0 #DEBUG
-                else:
-                    raise MPTCPInvalidLengthException("Expected Length 12 or 20, got %d. Opt Str: %s " % (length, hexlify(option.val)))
-                return_packet.version = subtypeversion & 0b1111
+                return_packet.sendkey = option.skey
+                return_packet.recvkey = option.rkey
+                return_packet.subtype = option.subtype
+                return_packet.version = option.version
+                return_packet.mptflags = option.flags
                 break
             elif mptcp_subtype == MPTCP_SUBTYPE_MP_JOIN:
                 return_packet = MPTCPJoinPacketInfo()
-                return_packet.length = length
-                if length == MPTCP_MP_JOIN_LENGTH:
-                    subtypebackup, return_packet.addrid, return_packet.recvtok, return_packet.nonce = struct.unpack('!BB4s4s',option.val)
-                    return_packet.backup = not not subtypebackup & 0b00000001
-                elif length == MPTCP_MP_JOIN2_LENGTH:
-                    subtypebackup, return_packet.addrid, return_packet.hmac, return_packet.nonce = struct.unpack('!BB8s4s',option.val)
-                elif length == MPTCP_MP_JOIN3_LENGTH:
-                    pass
-                else:
-                    raise MPTCPInvalidLengthException("Expected Length 12/16/20, got %d" % (length))
-                break
+                return_packet.addrid = option.address_id
+                return_packet.recvtok = option.rtoken
+                return_packet.nonce = option.srand
+                return_packet.mptflags = option.flags
             else: #MPTCP but not MP_CAPABLE or MP_JOIN
                 pass
     try:

@@ -17,8 +17,12 @@ import itertools
 from pprint import pprint
 import traceback
 import sys
+import expiringdict as expdict
 
 TCP_OPTION_KIND_MPTCP = 0x1e
+
+expdict_time = 600
+expdict_len = 2000
 
 #
 # WARNING: ONE MACHINE MUST BE CONNECTED TO ONLY ONE SWITCH!!!!!!!
@@ -69,7 +73,7 @@ class Overseer (object):
 
   _core_name = "overseer"  # We want to be core.overseer
 
-  def __init__(self, flow_idle_timeout=10, flow_hard_timeout=30):
+  def __init__(self, flow_idle_timeout=10, flow_hard_timeout=400):
     core.listen_to_dependencies(self)
 
     self.log = core.getLogger()
@@ -80,10 +84,10 @@ class Overseer (object):
     A pathset is just a bunch of paths put into itertools cycle type.
     Use next(pathset) to get next path.
     '''
-    self.pending_capable = {} # (init_ip, init_port, listen_ip, listen_port) => (init_hash, pathset)
-    self.pending_join = {} # (init_ip, init_port, listen_ip, listen_port) => (listen_hash, pathset)
-    self.mptcp_connections = {} # (to_hash) => from_hash, pathset
-    self.tcp_path_assignment = {} # (srcip, srcport, dstip, dstport) => path
+    self.pending_capable = expdict.ExpiringDict(expdict_len, expdict_time) # (init_ip, init_port, listen_ip, listen_port) => (init_hash, pathset)
+    self.pending_join = expdict.ExpiringDict(expdict_len, expdict_time) # (init_ip, init_port, listen_ip, listen_port) => (listen_hash, pathset)
+    self.mptcp_connections = expdict.ExpiringDict(expdict_len, expdict_time) # (to_hash) => from_hash, pathset
+    self.tcp_path_assignment = expdict.ExpiringDict(expdict_len, expdict_time) # (srcip, srcport, dstip, dstport) => path
 
     # TODO: support true-multihomed configs
     #       connections: (from_hash, from_sw, to_hash, to_sw) => pathset
@@ -284,8 +288,8 @@ class Overseer (object):
             #self.log.debug('%s %s' % (option.type, type(option.val)))
             if option.type == TCP_OPTION_KIND_MPTCP:
                 #Unpack one half-byte from the option (MPTCP Subtype)
-                mptcp_subtype = struct.unpack('B', option.val[0])[0] >> 4
-                self.log.info('MPTCP opt: %s' % (hexlify(option.val)))
+                mptcp_subtype = option.subtype
+                self.log.info('MPTCP opt: %s' % MPTCP_SUBTYPES[mptcp_subtype])
                 #self.log.debug(MPTCP_SUBTYPES[mptcp_subtype])
                 if mptcp_subtype == 1:
                     #pick the first Alt. Path

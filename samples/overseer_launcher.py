@@ -26,5 +26,5 @@ def launch():
   pox.web.webcore.launch()
   #import overseer.api
   #overseer.api.launch()
-  import mupoxstats
-  mupoxstats.launch()
+  #import mupoxstats
+  #mupoxstats.launch(interval=1, threshold=1000)
