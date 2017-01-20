@@ -56,7 +56,7 @@ class PathSet(itertools.cycle):
 
 class Overseer (object):
   """
-  SMOC = Modified for Simple Multipath Openflow Controller
+  smoc = Modified for Simple Multipath Openflow Controller
   (Working Title)
 
   Logic changes:
@@ -124,45 +124,52 @@ class Overseer (object):
     from_host = entryByMAC[source]
     to_host = entryByMAC[destination]
 
+    ip_packet = None
+    tcp_packet = None
+
+    if packet.find("ipv4") is not None:
+        ip_packet = packet.find("ipv4")
+
+    if packet.find("tcp") is not None:
+        tcp_packet = packet.find("tcp")
+        mptcp_options = [option for option in tcp_packet.options if option.type == TCP_OPTION_KIND_MPTCP]
+
     # TODO: INSPECT MPTCP AND PERFORM INFORMATION BASE OPERATIONS HERE
     # (USE NEW FUNCTION IN utils)
-    tcp_packet = packet.find("tcp")
-    if tcp_packet is not None:
+    # TODO: Decouple from utils.inspect_mptcp_packet
+    if tcp_packet is not None and len(mptcp_options)>0:
         mptcp_packet_info = utils.inspect_mptcp_packet(packet)
-        tcp_src = (mptcp_packet_info.srcip, mptcp_packet_info.srcport)
-        tcp_dst = (mptcp_packet_info.dstip, mptcp_packet_info.dstport)
+        mptcp_packet = mptcp_options[0]
+        self.log.info(str(mptcp_packet))
+
+        tcp_src = (ip_packet.srcip, tcp_packet.srcport)
+        tcp_dst = (ip_packet.dstip, tcp_packet.dstport)
         if isinstance(mptcp_packet_info, utils.MPTCPCapablePacketInfo):
-            if mptcp_packet_info.length == 12:
-                if (mptcp_packet_info.tcpflags & (TCP_SYN | TCP_ACK)) and (tcp_dst, tcp_src) in self.pending_capable:
-                    #second CAPABLE packet (syn/ack) => establish connection
-                    init_hash, pathset = self.pending_capable[(tcp_dst, tcp_src)]
-                    listen_hash = sha1(mptcp_packet_info.sendkey).hexdigest()[:8]
-                    back_pathset = self.get_multipath(from_host.dpid, to_host.dpid)
-                    # match from pending-database and add two connections
-                    self.mptcp_connections[init_hash] = (listen_hash, back_pathset)
-                    self.mptcp_connections[listen_hash] = (init_hash, pathset)
+            if (tcp_packet.flags & (TCP_SYN | TCP_ACK)) and (tcp_dst, tcp_src) in self.pending_capable:
+                #second CAPABLE packet (syn/ack) => establish connection
+                init_hash, pathset = self.pending_capable[(tcp_dst, tcp_src)]
+                listen_hash = sha1(mptcp_packet_info.sendkey).hexdigest()[:8]
+                back_pathset = self.get_multipath(from_host.dpid, to_host.dpid)
+                # match from pending-database and add two connections
+                self.mptcp_connections[init_hash] = (listen_hash, back_pathset)
+                self.mptcp_connections[listen_hash] = (init_hash, pathset)
 
-                    # delete from pending-database
-                    self.pending_capable.pop((tcp_dst, tcp_src), None)
-                    self.log.info("MPTCP Established! %s [%s:%d] <=> %s [%s:%d]" % (init_hash, mptcp_packet_info.dstip, mptcp_packet_info.dstport, listen_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport))
+                # delete from pending-database
+                self.pending_capable.pop((tcp_dst, tcp_src), None)
+                self.log.info("MPTCP Established! %s [%s:%d] <=> %s [%s:%d]" % (init_hash, ip_packet.dstip, tcp_packet.dstport, listen_hash, ip_packet.srcip, tcp_packet.srcport))
 
-                    path = back_pathset.next()
-                    self.log.info("Path Chosen: %s from %s" % (path, back_pathset))
+                path = back_pathset.next()
+                self.log.info("Path Chosen: %s from %s" % (path, back_pathset))
 
-                elif mptcp_packet_info.tcpflags & TCP_SYN and not mptcp_packet_info.tcpflags & TCP_ACK:
-                    #first CAPABLE (syn) => new connection
-                    init_hash = sha1(mptcp_packet_info.sendkey).hexdigest()[:8]
-                    pathset = self.get_multipath(from_host.dpid, to_host.dpid)
-                    self.pending_capable[(tcp_src, tcp_dst)] = (init_hash, pathset)
-                    #consider: get_multipath(from_host.dpid, to_host.dpid)
-                    self.log.info("MPTCP Pending Capable %s [%s:%d] ==> ??? [%s:%d]\n   Path: %s" % (init_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport, mptcp_packet_info.dstip, mptcp_packet_info.dstport, pathset))
-                    path = pathset.next()
-                    self.log.info("Path Chosen: %s from %s" % (path, pathset))
-            elif mptcp_packet_info.length == 20:
-                # not exactly what we wanted. pass.
-                pass
-            else:
-                pass
+            elif mptcp_packet_info.tcpflags & TCP_SYN and not mptcp_packet_info.tcpflags & TCP_ACK:
+                #first CAPABLE (syn) => new connection
+                init_hash = sha1(mptcp_packet_info.sendkey).hexdigest()[:8]
+                pathset = self.get_multipath(from_host.dpid, to_host.dpid)
+                self.pending_capable[(tcp_src, tcp_dst)] = (init_hash, pathset)
+                #consider: get_multipath(from_host.dpid, to_host.dpid)
+                self.log.info("MPTCP Pending Capable %s [%s:%d] ==> ??? [%s:%d]\n   Path: %s" % (init_hash, ip_packet.srcip, mptcp_packet_info.srcport, mptcp_packet_info.dstip, mptcp_packet_info.dstport, pathset))
+                path = pathset.next()
+                self.log.info("Path Chosen: %s from %s" % (path, pathset))
         elif isinstance(mptcp_packet_info, utils.MPTCPJoinPacketInfo):
             recvtok = None
             if mptcp_packet_info.recvtok is not None:
@@ -262,12 +269,9 @@ class Overseer (object):
         - Use least-conflicting, shortest path that's not used above
     """
 
-    #self.log.info("Getting Path (getpath)")
-
     # get shortest paths
     shortest_path = nx.shortest_path(core.overseer_topology.graph, from_dpid, to_dpid)
 
-    # if not TCP => completely ignore and use shortest path
     if tcp_packet is None:
         return shortest_path
 
@@ -283,14 +287,11 @@ class Overseer (object):
 
     # if MP_JOIN packet detected
     if tcp_packet is not None:
-        #scan type for 1e
         for option in tcp_packet.options:
             #self.log.debug('%s %s' % (option.type, type(option.val)))
             if option.type == TCP_OPTION_KIND_MPTCP:
-                #Unpack one half-byte from the option (MPTCP Subtype)
                 mptcp_subtype = option.subtype
                 self.log.info('MPTCP opt: %s' % MPTCP_SUBTYPES[mptcp_subtype])
-                #self.log.debug(MPTCP_SUBTYPES[mptcp_subtype])
                 if mptcp_subtype == 1:
                     #pick the first Alt. Path
                     self.log.info("MP_JOIN => Alt. Path")

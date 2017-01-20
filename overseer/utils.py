@@ -40,6 +40,8 @@ class MPTCPInvalidPacketException(Exception):
 
 def inspect_mptcp_packet(packet):
     '''
+    DEPRECEATED: not used as of POX 0.5.0
+
     Inspects a packet for MPTCP.
     Fields that can be returned:
      - subtype
@@ -83,15 +85,12 @@ def inspect_mptcp_packet(packet):
 
     for option in tcp_packet.options:
         if option.type == TCP_OPTION_KIND_MPTCP:
-            print dir(option)
             mptcp_subtype = option.subtype
-            print "S: %s" % (mptcp_subtype)
             if mptcp_subtype == MPTCP_SUBTYPE_MP_CAPABLE:
                 subtypeversion = None
                 return_packet = MPTCPCapablePacketInfo()
                 return_packet.sendkey = option.skey
                 return_packet.recvkey = option.rkey
-                return_packet.subtype = option.subtype
                 return_packet.version = option.version
                 return_packet.mptflags = option.flags
                 break
@@ -103,6 +102,7 @@ def inspect_mptcp_packet(packet):
                 return_packet.mptflags = option.flags
             else: #MPTCP but not MP_CAPABLE or MP_JOIN
                 pass
+            return_packet.subtype = option.subtype
     try:
         return_packet.srcport = tcp_packet.srcport
         return_packet.dstport = tcp_packet.dstport
