@@ -18,6 +18,8 @@ from pprint import pprint
 import traceback
 import sys
 import expiringdict as expdict
+from pox.lib.packet.tcp import mptcp_opt as pox_mptcp
+from pox.lib.packet.tcp import tcp as pox_tcp
 
 TCP_OPTION_KIND_MPTCP = 0x1e
 
@@ -138,17 +140,16 @@ class Overseer (object):
     # (USE NEW FUNCTION IN utils)
     # TODO: Decouple from utils.inspect_mptcp_packet
     if tcp_packet is not None and len(mptcp_options)>0:
-        mptcp_packet_info = utils.inspect_mptcp_packet(packet)
-        mptcp_packet = mptcp_options[0]
-        self.log.info(str(mptcp_packet))
+        mptcp_option = mptcp_options[0]
+        self.log.info(str(mptcp_option))
 
         tcp_src = (ip_packet.srcip, tcp_packet.srcport)
         tcp_dst = (ip_packet.dstip, tcp_packet.dstport)
-        if isinstance(mptcp_packet_info, utils.MPTCPCapablePacketInfo):
-            if (tcp_packet.flags & (TCP_SYN | TCP_ACK)) and (tcp_dst, tcp_src) in self.pending_capable:
+        if mptcp_option.subtype == pox_mptcp.MP_CAPABLE:
+            if (tcp_packet.flags & (pox_tcp.SYN_flag | pox_tcp.ACK_flag)) and (tcp_dst, tcp_src) in self.pending_capable:
                 #second CAPABLE packet (syn/ack) => establish connection
                 init_hash, pathset = self.pending_capable[(tcp_dst, tcp_src)]
-                listen_hash = sha1(mptcp_packet_info.sendkey).hexdigest()[:8]
+                listen_hash = sha1(mptcp_option.skey).hexdigest()[:8]
                 back_pathset = self.get_multipath(from_host.dpid, to_host.dpid)
                 # match from pending-database and add two connections
                 self.mptcp_connections[init_hash] = (listen_hash, back_pathset)
@@ -161,24 +162,24 @@ class Overseer (object):
                 path = back_pathset.next()
                 self.log.info("Path Chosen: %s from %s" % (path, back_pathset))
 
-            elif mptcp_packet_info.tcpflags & TCP_SYN and not mptcp_packet_info.tcpflags & TCP_ACK:
+            elif tcp_packet.flags & pox_tcp.SYN_flag and not tcp_packet.flags & pox_tcp.ACK_flag:
                 #first CAPABLE (syn) => new connection
-                init_hash = sha1(mptcp_packet_info.sendkey).hexdigest()[:8]
+                init_hash = sha1(mptcp_option.skey).hexdigest()[:8]
                 pathset = self.get_multipath(from_host.dpid, to_host.dpid)
                 self.pending_capable[(tcp_src, tcp_dst)] = (init_hash, pathset)
                 #consider: get_multipath(from_host.dpid, to_host.dpid)
-                self.log.info("MPTCP Pending Capable %s [%s:%d] ==> ??? [%s:%d]\n   Path: %s" % (init_hash, ip_packet.srcip, mptcp_packet_info.srcport, mptcp_packet_info.dstip, mptcp_packet_info.dstport, pathset))
+                self.log.info("MPTCP Pending Capable %s [%s:%d] ==> ??? [%s:%d]\n   Path: %s" % (init_hash, ip_packet.srcip, tcp_packet.srcport, ip_packet.dstip, tcp_packet.dstport, pathset))
                 path = pathset.next()
                 self.log.info("Path Chosen: %s from %s" % (path, pathset))
-        elif isinstance(mptcp_packet_info, utils.MPTCPJoinPacketInfo):
+        elif mptcp_option.subtype == pox_mptcp.MP_JOIN:
             recvtok = None
-            if mptcp_packet_info.recvtok is not None:
-                recvtok = hexlify(mptcp_packet_info.recvtok)
+            if mptcp_option.rtoken is not None:
+                recvtok = hexlify(mptcp_option.rtoken)
             # get connection instance
             if recvtok in self.mptcp_connections and recvtok is not None:
                 to_hash = recvtok
                 from_hash, pathset = self.mptcp_connections[to_hash]
-                self.log.info("JOIN: Matched CAPABLE Connection: %s [%s:%d] ==> %s [%s:%d]\n    Path: %s" % (from_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport, to_hash, mptcp_packet_info.dstip, mptcp_packet_info.dstport, pathset))
+                self.log.info("JOIN: Matched CAPABLE Connection: %s [%s:%d] ==> %s [%s:%d]\n    Path: %s" % (from_hash, ip_packet.srcip, tcp_packet.srcport, to_hash, ip_packet.dstip, tcp_packet.dstport, pathset))
                 # create entry in pending join
                 self.pending_join[(tcp_src, tcp_dst)] = (from_hash, pathset)
                 path = pathset.next()
@@ -188,7 +189,7 @@ class Overseer (object):
                 init_hash, pathset = self.pending_join[(tcp_dst, tcp_src)]
                 listen_hash, pathset = self.mptcp_connections[init_hash]
                 some_hash, back_pathset = self.mptcp_connections[listen_hash]
-                self.log.info("JOIN: Established JOIN Connection %s [%s:%d] <=> %s [%s:%d]\n    Path: %s" % (init_hash, mptcp_packet_info.dstip, mptcp_packet_info.dstport, listen_hash, mptcp_packet_info.srcip, mptcp_packet_info.srcport, back_pathset))
+                self.log.info("JOIN: Established JOIN Connection %s [%s:%d] <=> %s [%s:%d]\n    Path: %s" % (init_hash, ip_packet.dstip, tcp_packet.dstport, listen_hash, ip_packet.srcip, tcp_packet.srcport, back_pathset))
                 # delete from pending join
                 self.pending_join.pop((tcp_dst, tcp_src), None)
                 path = pathset.next()
