@@ -105,19 +105,22 @@ class Overseer (object):
     destination = packet.dst
     path = None #no path yet, we will assign later
 
+    self.log.debug('PacketIn: %s' % (packet))
+
     if destination.is_multicast:
       # Flood the packet
       # TODO: Install new flow instead of crafting new packet (hold down?)
       message = of.ofp_packet_out()
       message.actions.append(of.ofp_action_output(port=of.OFPP_FLOOD))
       message.buffer_id = event.ofp.buffer_id
-      # message.data = event.ofp
+      message.data = event.ofp
       message.in_port = event.port
       event.connection.send(message)
       return
 
     entryByMAC = core.host_tracker.entryByMAC
     known_hosts = entryByMAC.keys()
+    self.log.debug('Known Hosts: %s' % (known_hosts))
 
     if (source not in known_hosts) or (destination not in known_hosts):
       # Ignore non-end-to-end packet
@@ -131,6 +134,7 @@ class Overseer (object):
 
     if packet.find("ipv4") is not None:
         ip_packet = packet.find("ipv4")
+        self.log.debug(str(ip_packet))
 
     if packet.find("tcp") is not None:
         tcp_packet = packet.find("tcp")
@@ -199,12 +203,13 @@ class Overseer (object):
         else: #other MPTCP: latch it along some path if it matches existing connection, else send it along shortest path
             pass
 
-        self.log.info("/// Pending Capable Connections")
-        self.log.info(self.pending_capable)
-        self.log.info("/// Pending Join Connections")
-        self.log.info(self.pending_join)
-        self.log.info("/// Current Connections")
-        self.log.info(self.mptcp_connections)
+        self.log.info("/// Pending Capable Connections: %s" % (len(self.pending_capable)) +
+                     ("(MAX)" if len(self.pending_capable) >= expdict_len else ""))
+        self.log.debug(self.pending_capable)
+        self.log.info("/// Pending Join Connections: %s" % (len(self.pending_join)))
+        self.log.debug(self.pending_join)
+        self.log.info("/// Current Connections: %s" % (len(self.mptcp_connections)))
+        self.log.debug(self.mptcp_connections)
         self.log.info("///")
         if path is None:
             path = self.get_path(from_host.dpid, to_host.dpid, packet)
@@ -252,7 +257,8 @@ class Overseer (object):
     path_list = path_utils.sort_path_list(primary_path, path_list)
     path_list.insert(0, primary_path)
     pathset = PathSet(path_list)
-    self.log.info("Pathset Created: %s" % (path_list))
+    self.log.info("New Pathset with %s path(s)" % (len(path_list)))
+    self.log.debug("Pathsets: %s" % (path_list))
     return pathset
 
   def get_path(self, from_dpid, to_dpid, packet):
