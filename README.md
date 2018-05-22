@@ -1,3 +1,5 @@
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2FLunaticNeko%2Fsmoc.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2FLunaticNeko%2Fsmoc?ref=badge_shield)
+
 smoc
 ====
 simple multipath openflow controller
@@ -31,3 +33,7 @@ Usage
 Clone this repository into POX's ext directory and launch included sample launcher with the following command
 
     $ ./pox.py smoc.samples.launch
+
+
+## License
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2FLunaticNeko%2Fsmoc.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2FLunaticNeko%2Fsmoc?ref=badge_large)
